@@ -2,7 +2,9 @@ from collections import namedtuple
 from math import inf
 
 
-Point = namedtuple('Point', ['x', 'y'])
+class Point(namedtuple('Point', ['x', 'y'])):
+    def __str__(self):
+        return f"({self.x:d}, {self.y:d})" if self.x is not inf and self.y is not inf else "O"
 
 
 class EC:
@@ -73,6 +75,8 @@ class EC:
         tmp = p1
         i = 1
         while i < n:
+            if n - i == 1:
+                return self.add(p1, tmp)
             tmp = self.add(tmp, tmp)
             i = i << 1
         return tmp
