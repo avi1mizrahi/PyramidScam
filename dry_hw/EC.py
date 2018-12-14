@@ -62,24 +62,22 @@ class EC:
             return self.o
         if p1 != p2:
             # calculate slope of the line between p1 and p2
-            m = ((p2.y - p1.y) * self.inverse(p2.x - p1.x)) % self.n
+            m = (p2.y - p1.y) * self.inverse((p2.x - p1.x) % self.n) % self.n
         else:
             # calculate slope of the tangent line at p1
-            m = ((3 * pow(p1.x, 2) + self.a) * self.inverse(2 * p1.y)) % self.n
+            m = ((3 * pow(p1.x, 2) + self.a) * self.inverse((2 * p1.y) % self.n)) % self.n
         n = (p1.y - m * p1.x) % self.n
         return Point((pow(m, 2) - p1.x - p2.x) % self.n, (-pow(m, 3) + m * (p1.x + p2.x) - n) % self.n)
 
     def mul(self, p1: Point, n) -> Point:
-        if n == 0:
-            return self.o
         tmp = p1
-        i = 1
-        while i < n:
-            if n - i == 1:
-                return self.add(p1, tmp)
+        res = self.o
+        while n:
+            if n & 1:
+                res = self.add(res, tmp)
             tmp = self.add(tmp, tmp)
-            i = i << 1
-        return tmp
+            n = n >> 1
+        return res
 
 
 if __name__ == '__main__':
