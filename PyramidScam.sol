@@ -2,11 +2,11 @@ pragma solidity >=0.4.22 <0.6.0;
 
 
 contract PyramidScam {
-    uint constant public joiningFee;
+    uint public joiningFee;
     address private owner;
     uint private availableTokens;
-    uint constant public tokenProducerPrice;
-    uint constant public tokenConsumerPrice;
+    uint public tokenSupplierPrice;
+    uint public tokenConsumerPrice;
     mapping (address => address) private affiliates;
     mapping (address => uint)    pendingWithdrawals;
     mapping (address => uint)    pendingTokens;
@@ -14,14 +14,9 @@ contract PyramidScam {
 
     address constant Null = address(0);
     
-    
     modifier ifOwner(){
-        if (owner != msg.sendr) {
-           throw;
-        }
-        else{
-           _;
-        }
+        require(owner == msg.sender);
+        _;
     }
       
     
@@ -33,13 +28,13 @@ contract PyramidScam {
         tokenSupplierPrice = _tokenSupplierPrice;
     }
 
-    function addTokens() ifOwner private payable {
+    function addTokens() ifOwner public payable {
         availableTokens += msg.value;
     }
 
     function buyTokensSupplier() public payable {
         uint payment;
-        if (affiliates[msg.sender] != NULL) {
+        if (affiliates[msg.sender] != Null) {
             payment = msg.value * tokenSupplierPrice;
             if (payment <= pendingWithdrawals[msg.sender]) {
                 pendingTokens[msg.sender]      += msg.value;
@@ -52,7 +47,7 @@ contract PyramidScam {
     
      function buyTokensConsumer(address supplier) public payable returns (uint){
         uint tokenAmount = msg.value / tokenConsumerPrice;
-        if (affiliates[supplier] != NULL) {
+        if (affiliates[supplier] != Null) {
             if (tokenAmount <= pendingTokens[supplier]) {
                 pendingTokens[supplier]        -= tokenAmount;
                 pendingWithdrawals[supplier]   += msg.value;
