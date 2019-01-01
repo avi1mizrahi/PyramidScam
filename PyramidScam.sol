@@ -1,5 +1,29 @@
 pragma solidity >=0.5.0 <0.6.0;
 
+library AddressSet {
+    struct Set {
+        mapping(address => bool) contained;
+    }
+
+    function insert(Set storage self, address value) public returns (bool) {
+        if (self.contained[value])
+            return false; // already there
+        self.contained[value] = true;
+        return true;
+    }
+
+    function remove(Set storage self, address value) public returns (bool) {
+        if (!self.contained[value])
+            return false; // not there
+        self.contained[value] = false;
+        return true;
+    }
+
+    function contains(Set storage self, address value) public view returns (bool) {
+        return self.contained[value];
+    }
+}
+
 contract PyramidMember {
     PyramidScam public parentScam;
     address     public owner;
@@ -8,7 +32,7 @@ contract PyramidMember {
     uint public _tokenBuyPrice;
     uint public _tokenSellPrice;
 
-    modifier ifOwner(){
+    modifier ifOwner() {
         require(owner == msg.sender, "Only owner allowed");
         _;
     }
@@ -67,13 +91,13 @@ contract PyramidScam {
 
     mapping(address => uint)    private _tokens;
     mapping(address => address) private affiliates;
-    mapping(address => bool)    private members;
+    AddressSet.Set              private members;
     mapping(address => uint)    private pendingWithdrawals;
 
     address constant Null = address(0);
 
     function isPyramidMemberContract(address user) private view returns (bool) {
-        return members[user];
+        return AddressSet.contains(members, user);
     }
 
     function isMember(address user) private view returns (bool) {
@@ -112,7 +136,7 @@ contract PyramidScam {
 
         affiliates[msg.sender] = referral;
         PyramidMember newMember = new PyramidMember(this, msg.sender, initialTokens);
-        members[address(newMember)] = true;
+        AddressSet.insert(members, address(newMember));
         _tokens[address(newMember)] = initialTokens;
 
         return newMember;
