@@ -112,7 +112,12 @@ contract PyramidScam {
     constructor(uint _joiningFee) public {
         owner = msg.sender;
         joiningFee = _joiningFee;
+        joiningFee = 1 ether; // TODO:delete
     }
+
+    event Join (
+        PyramidMember newMember
+    );
 
     function join(address referral) public payable returns (PyramidMember) {
         require(msg.value >= joiningFee);
@@ -139,6 +144,7 @@ contract PyramidScam {
         AddressSet.insert(members, address(newMember));
         _tokens[address(newMember)] = initialTokens;
 
+        emit Join(newMember);
         return newMember;
     }
 
@@ -164,11 +170,20 @@ contract PyramidScam {
         return _tokens[addr];
     }
 
+    event Transfer (
+        address _from,
+        address _to,
+        address _sender,
+        uint _nTokens
+    );
+
     function transfer(address from, address to, uint nTokens) public ifContractMember {
+        emit Transfer(from, to , msg.sender, nTokens);
         // these sanity checks should never fail:
-        assert(isPyramidMemberContract(from) || isPyramidMemberContract(to));
-        assert(isMember(PyramidMember(msg.sender).owner()));
-        assert(nTokens <= _tokens[from]);
+        require(isPyramidMemberContract(from) || isPyramidMemberContract(to), "member must touch is own pot");
+        // TODO: there is a bug! enable this check:
+        // require(isMember(PyramidMember(msg.sender).owner()), "sender is not a PyramidMember of this");
+        require(nTokens <= _tokens[from], "not enough tokens");
 
         _tokens[from] -= nTokens;
         _tokens[to] += nTokens;
