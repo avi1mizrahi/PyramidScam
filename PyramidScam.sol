@@ -1,82 +1,121 @@
-pragma solidity >=0.4.22 <0.6.0;
+pragma solidity >=0.5.0 <0.6.0;
 
+contract PyramidMember {
+    PyramidScam public parentScam;
+    address     public owner;
 
-contract PyramidScam {
-    uint public joiningFee;
-    address private owner;
-    uint private availableTokens;
-    uint public tokenSupplierPrice;
-    uint public tokenConsumerPrice;
-    mapping (address => address) private affiliates;
-    mapping (address => uint)    pendingWithdrawals;
-    mapping (address => uint)    pendingTokens;
-    uint nPending = 0;
+    uint public _nTokens;
+    uint public _tokenBuyPrice;
+    uint public _tokenSellPrice;
 
-    address constant Null = address(0);
-    
     modifier ifOwner(){
-        require(owner == msg.sender);
+        require(owner == msg.sender, "Only owner allowed");
         _;
     }
-      
-    
-    constructor(uint _joiningFee, uint _availableTokens, uint _tokenConsumerPrice, uint _tokenSupplierPrice) public {
-        owner              = msg.sender;
-        joiningFee         = _joiningFee;
-        availableTokens    = _availableTokens;
-        tokenConsumerPrice = _tokenConsumerPrice;
-        tokenSupplierPrice = _tokenSupplierPrice;
+
+    constructor(PyramidScam scam, address member, uint nTokens) public {
+        parentScam      = scam;
+        owner           = member;
+        _nTokens        = nTokens;
+        _tokenBuyPrice  = 0;
+        _tokenSellPrice = 2 ** 256 - 1;
     }
 
-    function addTokens() ifOwner public payable {
-        availableTokens += msg.value;
+    function setBuyPrice(uint buyPrice) public ifOwner {
+        _tokenBuyPrice = buyPrice;
     }
 
-    function buyTokensSupplier() public payable {
-        uint payment;
-        if (affiliates[msg.sender] != Null) {
-            payment = msg.value * tokenSupplierPrice;
-            if (payment <= pendingWithdrawals[msg.sender]) {
-                pendingTokens[msg.sender]      += msg.value;
-                pendingWithdrawals[msg.sender] -= payment;
-                pendingTokens[owner]           -= msg.value;
-                pendingWithdrawals[owner]      += payment;
-            }
-        }
+    function setSellPrice(uint sellPrice) public ifOwner {
+        _tokenSellPrice = sellPrice;
     }
-    
-     function buyTokensConsumer(address supplier) public payable returns (uint){
-        uint tokenAmount = msg.value / tokenConsumerPrice;
-        if (affiliates[supplier] != Null) {
-            if (tokenAmount <= pendingTokens[supplier]) {
-                pendingTokens[supplier]        -= tokenAmount;
-                pendingWithdrawals[supplier]   += msg.value;
-                return tokenAmount;
-            }
-        }
-        return 0;
+
+    function sell(uint nTokens, uint requestedPrice) public payable {
+        require(requestedPrice >= _tokenSellPrice, "Go find yourself another seller");
+        if (nTokens > _nTokens) nTokens = _nTokens;
+        uint totalPrice = nTokens * requestedPrice;
+        require(msg.value >= totalPrice, "come back with more money");
+
+        _nTokens -= nTokens;
+
+        parentScam.transfer(address(this), msg.sender, nTokens);
+
+        msg.sender.transfer(msg.value - totalPrice); //TODO: vulnerability?
     }
-    
-    function join(address referral) public payable {
-        if (msg.value < joiningFee) return;
-        if (affiliates[msg.sender] != Null || msg.sender == owner) return; // TODO: do better here
+
+    function buy(uint nTokens, uint requestedPrice) public {
+        require(parentScam.getTokenAmount(msg.sender) >= nTokens, "Cheater");
+        require(requestedPrice <= _tokenBuyPrice, "Go find yourself another buyer");
+        uint totalPrice = nTokens * requestedPrice;
+        require(totalPrice <= address(this).balance, "Sorry, out of money");
+
+        parentScam.transfer(msg.sender, address(this), nTokens);
+        _nTokens += nTokens;
+
+        msg.sender.transfer(totalPrice); //TODO: vulnerability?
+    }
+
+    function getTokenAmount() public view returns (uint) {
+        return parentScam.getTokenAmount(msg.sender);
+    }
+}
+
+contract PyramidScam {
+
+    address private owner;
+    uint    private nPending = 0;
+    uint    public  joiningFee;
+
+    mapping(address => uint)    private _tokens;
+    mapping(address => address) private affiliates;
+    mapping(address => bool)    private members;
+    mapping(address => uint)    private pendingWithdrawals;
+
+    address constant Null = address(0);
+
+    function isPyramidMemberContract(address user) private view returns (bool) {
+        return members[user];
+    }
+
+    function isMember(address user) private view returns (bool) {
+        return affiliates[user] != Null || user == owner;
+    }
+
+    modifier ifContractMember {
+        require(isPyramidMemberContract(msg.sender), "Only PyramidMember contract allowed");
+        _;
+    }
+
+    constructor(uint _joiningFee) public {
+        owner = msg.sender;
+        joiningFee = _joiningFee;
+    }
+
+    function join(address referral) public payable returns (PyramidMember) {
+        require(msg.value >= joiningFee);
+        require(!isMember(msg.sender));
+
         if (affiliates[referral] == Null)
             referral = owner;
 
-        affiliates[msg.sender] = referral;
-
         uint amount = joiningFee;
-        while(referral != Null) {
+        while (referral != Null) {
             amount /= 2;
-            if (pendingWithdrawals[referral] == 0 && amount > 0)
+            if (amount == 0) break;
+            if (pendingWithdrawals[referral] == 0)
                 nPending++;
             pendingWithdrawals[referral] += amount;
             referral = affiliates[referral];
         }
-        
-        uint initialDeposit = msg.value - joiningFee;
-        uint initialTokens  = initialDeposit/tokenSupplierPrice;
-        pendingTokens[msg.sender] = initialTokens;
+
+        // TODO
+        uint initialTokens = 1000;
+
+        affiliates[msg.sender] = referral;
+        PyramidMember newMember = new PyramidMember(this, msg.sender, initialTokens);
+        members[address(newMember)] = true;
+        _tokens[address(newMember)] = initialTokens;
+
+        return newMember;
     }
 
     function withdraw() public {
@@ -87,13 +126,27 @@ contract PyramidScam {
 
         nPending--;
         // Remember to zero the pending refund before
-        // sending to prevent re-entrancy attacks
+        // sending to prevent re-entrancy attacks!
         pendingWithdrawals[msg.sender] = 0;
         if (nPending == 0) {
-            // last one left
+            // last one left wins the remainders
             selfdestruct(msg.sender);
-        } else {
-            msg.sender.transfer(amount);
         }
+
+        msg.sender.transfer(amount);
+    }
+
+    function getTokenAmount(address addr) public view ifContractMember returns (uint) {
+        return _tokens[addr];
+    }
+
+    function transfer(address from, address to, uint nTokens) public ifContractMember {
+        // these sanity checks should never fail:
+        assert(isPyramidMemberContract(from) || isPyramidMemberContract(to));
+        assert(isMember(PyramidMember(msg.sender).owner()));
+        assert(nTokens <= _tokens[from]);
+
+        _tokens[from] -= nTokens;
+        _tokens[to] += nTokens;
     }
 }
