@@ -1,10 +1,11 @@
 pragma solidity >=0.5.0 <0.6.0;
 
 contract PyramidMember {
+    // TODO: all public for testing
     address payable public  owner;
     PyramidScam     public  parentScam;
-    PyramidMember   private recruiter;
-    PyramidMember[] private children;
+    PyramidMember   public  recruiter;
+    PyramidMember[] public  children;
 
     uint public nTokens;
     uint public tokenBuyPrice;
@@ -99,7 +100,7 @@ contract PyramidMember {
 
 contract PyramidScam {
 
-    PyramidMember private owner;
+    PyramidMember public  owner;
     uint          public  joiningFee;
     // TODO
     uint          public  initialTokens = 1000;
