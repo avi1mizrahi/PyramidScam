@@ -1,32 +1,10 @@
 pragma solidity >=0.5.0 <0.6.0;
 
-library AddressSet {
-    struct Set {
-        mapping(address => bool) contained;
-    }
-
-    function insert(Set storage self, address value) public returns (bool) {
-        if (self.contained[value])
-            return false; // already there
-        self.contained[value] = true;
-        return true;
-    }
-
-    function remove(Set storage self, address value) public returns (bool) {
-        if (!self.contained[value])
-            return false; // not there
-        self.contained[value] = false;
-        return true;
-    }
-
-    function contains(Set storage self, address value) public view returns (bool) {
-        return self.contained[value];
-    }
-}
-
 contract PyramidMember {
-    PyramidScam     public parentScam;
-    address payable public owner;
+    address payable public  owner;
+    PyramidScam     public  parentScam;
+    PyramidMember   private recruiter;
+    PyramidMember[] private children;
 
     uint public nTokens;
     uint public tokenBuyPrice;
@@ -37,8 +15,8 @@ contract PyramidMember {
         _;
     }
 
-    modifier ifParent() {
-        require(address(parentScam) == msg.sender, "Only parentScam allowed");
+    modifier ifRecruiter() {
+        require(address(recruiter) == msg.sender, "Only recruiter allowed");
         _;
     }
 
@@ -50,8 +28,35 @@ contract PyramidMember {
         tokenSellPrice  = 2 ** 256 - 1;
     }
 
-    function destroy() public ifParent {
+    function exit() public {
+        parentScam.exit();
+
+        // WARN: This unbounded for loop is an anti-pattern
+        for (uint i = 0; i < children.length; i++) {
+            children[i].updateRecruiter(recruiter);
+        }
+
         selfdestruct(owner);
+    }
+
+    function updateRecruiter(PyramidMember newParent) public ifRecruiter {
+        recruiter = newParent;
+    }
+
+    function share() private {
+        uint referralShare = msg.value / 2;
+        address(recruiter).transfer(referralShare);
+    }
+
+    function() external payable {
+        share();
+    }
+
+    function join() public payable returns(PyramidMember) {
+        require(msg.value >= parentScam.joiningFee());
+
+        share();
+        return parentScam.join.value(msg.value / 10)(msg.sender);
     }
 
     function setBuyPrice(uint buyPrice) public ifOwner {
@@ -94,69 +99,50 @@ contract PyramidMember {
 
 contract PyramidScam {
 
-    address private owner;
-    uint    private nPending = 0;
-    uint    public  joiningFee;
+    PyramidMember private owner;
+    uint          public  joiningFee;
+    // TODO
+    uint          public  initialTokens = 1000;
 
     uint                        private nTokens;
     mapping(address => uint)    private tokens;
-    mapping(address => address) private affiliates;
-    AddressSet.Set              private members;
+    uint                        private nPending = 0;
     mapping(address => uint)    private pendingWithdrawals;
+    AddressSet.Set              private members;
 
     address constant Null = address(0);
 
-    function isPyramidMemberContract(address user) private view returns (bool) {
+    function isMember(address user) private view returns (bool) {
         return AddressSet.contains(members, user);
     }
 
-    function isMember(address user) private view returns (bool) {
-        return affiliates[user] != Null || user == owner;
-    }
-
-    modifier ifContractMember {
-        require(isPyramidMemberContract(msg.sender), "Only PyramidMember contract allowed");
+    modifier ifMember {
+        require(isMember(msg.sender), "Only PyramidMember contract allowed");
         _;
     }
 
-    constructor(uint _joiningFee) public {
-        owner = msg.sender;
-        joiningFee = _joiningFee;
-        joiningFee = 1 ether; // TODO:delete
-    }
-
-    event Join (
+    event NewMember (
         PyramidMember newMember
     );
 
-    function join(address referral) public payable returns (PyramidMember) {
-        require(msg.value >= joiningFee);
-        require(!isMember(msg.sender));
-
-        if (affiliates[referral] == Null)
-            referral = owner;
-
-        uint amount = joiningFee;
-        while (referral != Null) {
-            amount /= 2;
-            if (amount == 0) break;
-            if (pendingWithdrawals[referral] == 0)
-                nPending++;
-            pendingWithdrawals[referral] += amount;
-            referral = affiliates[referral];
-        }
-
-        // TODO
-        uint initialTokens = 1000;
-
-        affiliates[msg.sender] = referral;
-        PyramidMember newMember = new PyramidMember(this, msg.sender, initialTokens);
+    function addNewMember(address payable newAddress) private returns(PyramidMember) {
+        PyramidMember newMember = new PyramidMember(this, newAddress, initialTokens);
         AddressSet.insert(members, address(newMember));
+
         tokens[address(newMember)] = initialTokens;
         nTokens += initialTokens;
 
-        emit Join(newMember);
+        emit NewMember(newMember);
         return newMember;
+    }
+
+    constructor(uint _joiningFee) public {
+        joiningFee = _joiningFee;
+        owner = addNewMember(msg.sender);
+    }
+
+    function join(address payable newAddress) public payable ifMember returns (PyramidMember) {
+        return addNewMember(newAddress);
     }
 
     function spendToken() public pure returns(uint) {
@@ -165,7 +151,16 @@ contract PyramidScam {
         return 0; // TODO
     }
 
-    function exitAndWithdraw() public {
+    function isEmpty() private view returns(bool) {
+        return AddressSet.isEmpty(members) && nPending == 0;
+    }
+
+    function exit() public ifMember {
+        AddressSet.remove(members, msg.sender);
+        if (isEmpty()) selfdestruct(msg.sender);
+    }
+
+    function withdraw() public {
         uint amount = pendingWithdrawals[msg.sender];
 
         if (amount == 0)
@@ -175,7 +170,7 @@ contract PyramidScam {
         // Remember to zero the pending refund before
         // sending to prevent re-entrancy attacks!
         pendingWithdrawals[msg.sender] = 0;
-        if (nPending == 0) {
+        if (isEmpty()) {
             // last one left wins the remainders
             selfdestruct(msg.sender);
         }
@@ -183,7 +178,7 @@ contract PyramidScam {
         msg.sender.transfer(amount);
     }
 
-    function getTokenAmount(address addr) public view ifContractMember returns (uint) {
+    function getTokenAmount(address addr) public view ifMember returns (uint) {
         return tokens[addr];
     }
 
@@ -194,15 +189,46 @@ contract PyramidScam {
         uint _nTokens
     );
 
-    function transfer(address from, address to, uint numTokens) public ifContractMember {
+    function transfer(address from, address to, uint numTokens) public ifMember {
         emit Transfer(from, to , msg.sender, nTokens);
         // these sanity checks should never fail:
-        require(isPyramidMemberContract(from) || isPyramidMemberContract(to), "member must touch is own pot");
+        require(isMember(from) || isMember(to), "member must touch is own pot");
         // TODO: there is a bug! enable this check:
         // require(isMember(PyramidMember(msg.sender).owner()), "sender is not a PyramidMember of this");
         require(nTokens <= tokens[from], "not enough tokens");
 
         tokens[from] -= numTokens;
         tokens[to] += numTokens;
+    }
+}
+
+library AddressSet {
+    struct Set {
+        uint size;
+        mapping(address => bool) contained;
+    }
+
+    function insert(Set storage self, address value) public returns (bool) {
+        if (self.contained[value])
+            return false; // already there
+        self.contained[value] = true;
+        self.size++;
+        return true;
+    }
+
+    function remove(Set storage self, address value) public returns (bool) {
+        if (!self.contained[value])
+            return false; // not there
+        self.contained[value] = false;
+        self.size--;
+        return true;
+    }
+
+    function contains(Set storage self, address value) public view returns (bool) {
+        return self.contained[value];
+    }
+
+    function isEmpty(Set storage self) public view returns (bool) {
+        return self.size == 0;
     }
 }
