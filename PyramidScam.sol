@@ -54,7 +54,7 @@ contract PyramidMember {
     }
 
     function join() public payable returns(PyramidMember) {
-        require(msg.value >= parentScam.joiningFee());
+        require(msg.value >= parentScam.joiningFee(), "go back with more money");
 
         share();
         return parentScam.join.value(msg.value / 10)(msg.sender);
@@ -147,6 +147,7 @@ contract PyramidScam {
     }
 
     function spendToken() public pure returns(uint) {
+
         // TODO: do the "coinflip" here
         // return _tokens[addr];
         return 0; // TODO
