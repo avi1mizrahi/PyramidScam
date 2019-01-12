@@ -11,6 +11,8 @@ contract PyramidMember {
     uint public tokenBuyPrice;
     uint public tokenSellPrice;
 
+    address constant Null = address(0);
+
     modifier ifOwner() {
         require(owner == msg.sender, "Only owner allowed");
         _;
@@ -21,8 +23,9 @@ contract PyramidMember {
         _;
     }
 
-    constructor(PyramidScam scam, address payable member, uint nInitialTokens) public {
+    constructor(PyramidScam scam, PyramidMember myRecruiter, address payable member, uint nInitialTokens) public {
         parentScam      = scam;
+        recruiter       = myRecruiter;
         owner           = member;
         nTokens         = nInitialTokens;
         tokenBuyPrice   = 0;
@@ -45,6 +48,7 @@ contract PyramidMember {
     }
 
     function share() private {
+        if (address(recruiter) == Null) return; // I'm the owner!!
         uint referralShare = msg.value / 2;
         address(recruiter).transfer(referralShare);
     }
@@ -126,8 +130,8 @@ contract PyramidScam {
         PyramidMember newMember
     );
 
-    function addNewMember(address payable newAddress) private returns(PyramidMember) {
-        PyramidMember newMember = new PyramidMember(this, newAddress, initialTokens);
+    function addNewMember(address payable newAddress, PyramidMember recruiter) private returns(PyramidMember) {
+        PyramidMember newMember = new PyramidMember(this, recruiter, newAddress, initialTokens);
         AddressSet.insert(members, address(newMember));
 
         tokens[address(newMember)] = initialTokens;
@@ -139,11 +143,11 @@ contract PyramidScam {
 
     constructor(uint _joiningFee) public {
         joiningFee = _joiningFee;
-        owner = addNewMember(msg.sender);
+        owner = addNewMember(msg.sender, PyramidMember(address(0)));
     }
 
     function join(address payable newAddress) public payable ifMember returns (PyramidMember) {
-        return addNewMember(newAddress);
+        return addNewMember(newAddress, PyramidMember(msg.sender));
     }
 
     function spendToken() public pure returns(uint) {
