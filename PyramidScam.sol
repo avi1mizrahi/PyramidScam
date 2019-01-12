@@ -39,12 +39,22 @@ contract PyramidMember {
         for (uint i = 0; i < children.length; i++) {
             children[i].updateRecruiter(recruiter);
         }
+        recruiter.updateChildren();
 
         selfdestruct(owner);
     }
 
     function updateRecruiter(PyramidMember newParent) public ifRecruiter {
         recruiter = newParent;
+    }
+
+    function updateChildren() public {
+        for (uint i = 0; i < children.length; i++) {
+            if (children[i] == PyramidMember(msg.sender)) {
+                delete children[i];
+                return;
+            }
+        }
     }
 
     function share() private {
@@ -61,7 +71,9 @@ contract PyramidMember {
         require(msg.value >= parentScam.joiningFee(), "go back with more money");
 
         share();
-        return parentScam.join.value(msg.value / 10)(msg.sender);
+        PyramidMember newMember = parentScam.join.value(msg.value / 10)(msg.sender);
+        children.push(newMember);
+        return newMember;
     }
 
     function setBuyPrice(uint buyPrice) public ifOwner {
