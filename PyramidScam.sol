@@ -220,6 +220,87 @@ contract PyramidScam {
     }
 }
 
+contract Lottery {
+    
+    mapping (uint8 => address[]) playersByNumber ;
+    mapping (address => bytes32) playersHash;
+
+    uint8[] numbers;
+    
+    address payable owner;
+    
+    uint public minPlayers;
+    uint public nPlayers;
+    
+    enum State { Round1, Round2, Finished }
+
+    State state; 
+
+    modifier ifOwner() {
+        require(owner == msg.sender, "Only owner allowed");
+        _;
+    }
+
+    modifier ifRound1() {
+        require(state == State.Round1, "invalid call for Round1");
+        _;
+    }
+    
+    modifier ifRound2() { 
+        require(state == State.Round2, "invalid call for Round2");
+        _;
+    }
+
+    constructor(uint _minPlayers) public {
+        owner = msg.sender;
+        state = State.Round1;
+        minPlayers = _minPlayers;
+    }
+    
+    function hash(uint8 number, address addr) public pure returns(bytes32) {
+        return keccak256(abi.encodePacked(number, addr));
+    }
+    
+    function enterHash(bytes32 x) public ifRound1 {
+        playersHash[msg.sender] = x;
+        nPlayers++;
+    }
+
+    function secondRound() public ifRound1 {
+        require(nPlayers >= minPlayers, "not enough players");
+        state = State.Round2;
+    }
+    
+    function revealYourNumber(uint8 number) public ifRound2 {
+        require(hash(number, msg.sender) == playersHash[msg.sender], "wrong seed");
+        playersByNumber[number].push(msg.sender);
+        numbers.push(number);
+    }
+    
+    function determineWinner() public ifRound2 returns(address) {
+        require(numbers.length >= minPlayers);
+        state = State.Finished;
+        address[] memory candidates = playersByNumber[random()];
+        if (candidates.length == 1) {
+            return candidates[0];
+        }
+        return address(0);
+    }
+    
+    function destroy() public ifOwner {
+        require(state == State.Finished, "must be Finished");
+        selfdestruct(owner);
+    }
+    
+    function random() private view returns (uint8) {
+        uint8 randomNumber = uint8(0xDEAD);
+        for (uint8 i = 0; i < numbers.length; ++i) {
+            randomNumber ^= numbers[i];
+        }
+        return randomNumber;
+    }
+}
+
 library AddressSet {
     struct Set {
         uint size;
