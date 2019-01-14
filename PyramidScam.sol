@@ -127,6 +127,9 @@ contract PyramidScam {
     mapping(address => uint)    private pendingWithdrawals;
     AddressSet.Set              private members;
 
+    Kahlon private lottery;
+    uint spentTokens = 0;
+    
     address constant Null = address(0);
 
     function isMember(address user) private view returns (bool) {
@@ -146,8 +149,7 @@ contract PyramidScam {
         PyramidMember newMember = new PyramidMember(this, recruiter, newAddress, initialTokens);
         AddressSet.insert(members, address(newMember));
 
-        tokens[address(newMember)] = initialTokens;
-        nTokens += initialTokens;
+        addTokens(address(newMember), initialTokens);
 
         emit NewMember(newMember);
         return newMember;
@@ -156,17 +158,52 @@ contract PyramidScam {
     constructor(uint _joiningFee) public {
         joiningFee = _joiningFee;
         owner = addNewMember(msg.sender, PyramidMember(address(0)));
+        lottery = new Kahlon(3);
     }
 
     function join(address payable newAddress) public payable ifMember returns (PyramidMember) {
         return addNewMember(newAddress, PyramidMember(msg.sender));
     }
+    
+    function discardTokens(address who, uint howMany) private {
+        tokens[who] -= howMany;
+        nTokens -= howMany;
+    }
+    
+    function addTokens(address who, uint howMany) private {
+        tokens[who] += howMany;
+        nTokens += howMany;
+    }
 
-    function spendToken() public pure returns(uint) {
+    function spendTokensPrepare(bytes32 hashedTokens) public {
+        lottery.enterHash(hashedTokens);
+    }
 
-        // TODO: do the "coinflip" here
-        // return _tokens[addr];
-        return 0; // TODO
+    function spendTokens(uint8 revealedTokensNum) public {
+        require(revealedTokensNum <= tokens[msg.sender], "not enough tokens");
+        discardTokens(msg.sender, revealedTokensNum);
+        spentTokens += revealedTokensNum;
+        lottery.revealYourNumber(revealedTokensNum);
+    }
+
+    function startRevealStage() public ifMember {
+        lottery.secondRound();
+    }
+    
+    event Winner(address winner);
+    
+    function rollTheDice() public ifMember {
+        address winner = lottery.determineWinner();
+        emit Winner(winner);
+        if (winner == Null) return;
+        
+        uint tokenPrice = address(this).balance / (nTokens + spentTokens + 1);
+        
+        pendingWithdrawals[winner] += spentTokens * tokenPrice;
+        nPending++;
+        
+        lottery.destroy();
+        lottery = new Kahlon(3);
     }
 
     function isEmpty() private view returns(bool) {
@@ -220,12 +257,12 @@ contract PyramidScam {
     }
 }
 
-contract Lottery {
+contract Kahlon {
     
-    mapping (uint8 => address[]) playersByNumber ;
-    mapping (address => bytes32) playersHash;
+    mapping (uint8 => address[]) private playerByNumber ;
+    mapping (address => bytes32) private playerHashes;
 
-    uint8[] numbers;
+    uint8[] private numbers;
     
     address payable owner;
     
@@ -234,7 +271,7 @@ contract Lottery {
     
     enum State { Round1, Round2, Finished }
 
-    State state; 
+    State public state; 
 
     modifier ifOwner() {
         require(owner == msg.sender, "Only owner allowed");
@@ -258,11 +295,11 @@ contract Lottery {
     }
     
     function hash(uint8 number, address addr) public pure returns(bytes32) {
-        return keccak256(abi.encodePacked(number, addr));
+        return sha256(abi.encodePacked(number, addr));
     }
     
     function enterHash(bytes32 x) public ifRound1 {
-        playersHash[msg.sender] = x;
+        playerHashes[msg.sender] = x;
         nPlayers++;
     }
 
@@ -272,15 +309,15 @@ contract Lottery {
     }
     
     function revealYourNumber(uint8 number) public ifRound2 {
-        require(hash(number, msg.sender) == playersHash[msg.sender], "wrong seed");
-        playersByNumber[number].push(msg.sender);
+        require(hash(number, msg.sender) == playerHashes[msg.sender], "wrong seed");
+        playerByNumber[number].push(msg.sender);
         numbers.push(number);
     }
     
     function determineWinner() public ifRound2 returns(address) {
         require(numbers.length >= minPlayers);
         state = State.Finished;
-        address[] memory candidates = playersByNumber[random()];
+        address[] memory candidates = playerByNumber[random()];
         if (candidates.length == 1) {
             return candidates[0];
         }
