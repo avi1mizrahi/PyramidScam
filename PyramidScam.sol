@@ -129,7 +129,7 @@ contract PyramidScam {
 
     Kahlon private lottery;
     uint spentTokens = 0;
-    
+
     address constant Null = address(0);
 
     function isMember(address user) private view returns (bool) {
@@ -138,6 +138,11 @@ contract PyramidScam {
 
     modifier ifMember {
         require(isMember(msg.sender), "Only PyramidMember contract allowed");
+        _;
+    }
+
+    modifier ifOwner {
+        require(msg.sender == owner.owner(), "Only the owner allowed");
         _;
     }
 
@@ -164,12 +169,12 @@ contract PyramidScam {
     function join(address payable newAddress) public payable ifMember returns (PyramidMember) {
         return addNewMember(newAddress, PyramidMember(msg.sender));
     }
-    
+
     function discardTokens(address who, uint howMany) private {
         tokens[who] -= howMany;
         nTokens -= howMany;
     }
-    
+
     function addTokens(address who, uint howMany) private {
         tokens[who] += howMany;
         nTokens += howMany;
@@ -186,22 +191,21 @@ contract PyramidScam {
         lottery.revealYourNumber(revealedTokensNum);
     }
 
-    function startRevealStage() public ifMember {
+    function startRevealStage() public ifOwner {
         lottery.secondRound();
     }
-    
+
     event Winner(address winner);
-    
-    function rollTheDice() public ifMember {
+
+    function rollTheDice() public ifOwner {
         address winner = lottery.determineWinner();
         emit Winner(winner);
-        if (winner == Null) return;
-        
-        uint tokenPrice = address(this).balance / (nTokens + spentTokens + 1);
-        
-        pendingWithdrawals[winner] += spentTokens * tokenPrice;
-        nPending++;
-        
+        if (winner != Null) {
+            uint tokenPrice = address(this).balance / (nTokens + spentTokens + 1);
+
+            pendingWithdrawals[winner] += spentTokens * tokenPrice;
+            nPending++;
+        }
         lottery.destroy();
         lottery = new Kahlon(3);
     }
@@ -258,20 +262,20 @@ contract PyramidScam {
 }
 
 contract Kahlon {
-    
+
     mapping (uint8 => address[]) private playerByNumber ;
     mapping (address => bytes32) private playerHashes;
 
     uint8[] private numbers;
-    
+
     address payable owner;
-    
+
     uint public minPlayers;
     uint public nPlayers;
-    
+
     enum State { Round1, Round2, Finished }
 
-    State public state; 
+    State public state;
 
     modifier ifOwner() {
         require(owner == msg.sender, "Only owner allowed");
@@ -282,8 +286,8 @@ contract Kahlon {
         require(state == State.Round1, "invalid call for Round1");
         _;
     }
-    
-    modifier ifRound2() { 
+
+    modifier ifRound2() {
         require(state == State.Round2, "invalid call for Round2");
         _;
     }
@@ -293,11 +297,11 @@ contract Kahlon {
         state = State.Round1;
         minPlayers = _minPlayers;
     }
-    
+
     function hash(uint8 number, address addr) public pure returns(bytes32) {
         return sha256(abi.encodePacked(number, addr));
     }
-    
+
     function enterHash(bytes32 x) public ifRound1 {
         playerHashes[msg.sender] = x;
         nPlayers++;
@@ -307,13 +311,13 @@ contract Kahlon {
         require(nPlayers >= minPlayers, "not enough players");
         state = State.Round2;
     }
-    
+
     function revealYourNumber(uint8 number) public ifRound2 {
         require(hash(number, msg.sender) == playerHashes[msg.sender], "wrong seed");
         playerByNumber[number].push(msg.sender);
         numbers.push(number);
     }
-    
+
     function determineWinner() public ifRound2 returns(address) {
         require(numbers.length >= minPlayers);
         state = State.Finished;
@@ -323,12 +327,12 @@ contract Kahlon {
         }
         return address(0);
     }
-    
+
     function destroy() public ifOwner {
         require(state == State.Finished, "must be Finished");
         selfdestruct(owner);
     }
-    
+
     function random() private view returns (uint8) {
         uint8 randomNumber = uint8(0xDEAD);
         for (uint8 i = 0; i < numbers.length; ++i) {
